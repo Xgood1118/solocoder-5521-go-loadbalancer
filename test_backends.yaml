@@ -1,0 +1,30 @@
+backends:
+  - id: api-1
+    group: api
+    address: 127.0.0.1:8122
+    weight: 3
+    max_conns: 500
+
+  - id: api-2
+    group: api
+    address: 127.0.0.1:8123
+    weight: 2
+    max_conns: 500
+
+  - id: api-3
+    group: api
+    address: 127.0.0.1:8124
+    weight: 1
+    max_conns: 500
+
+  - id: web-1
+    group: web
+    address: 127.0.0.1:8125
+    weight: 1
+    max_conns: 200
+
+  - id: web-2
+    group: web
+    address: 127.0.0.1:8126
+    weight: 1
+    max_conns: 200

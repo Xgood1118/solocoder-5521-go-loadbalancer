@@ -1,0 +1,28 @@
+port: 8121
+admin_port: 8120
+includes:
+  - test_backends_bug.yaml
+health_check:
+  type: tcp
+  interval_sec: 2
+  timeout_sec: 1
+  unhealthy_threshold: 2
+  healthy_threshold: 2
+circuit_breaker:
+  failure_threshold: 3
+  cooldown_sec: 5
+rate_limit:
+  enabled: true
+  rate_per_sec: 100
+  bucket: 200
+access_log:
+  enabled: true
+  file_path: logs/access.log
+  max_hours: 168
+backends: []
+rules:
+  - id: g-default
+    path_prefix: /
+    backend_group: g
+    strategy: weighted_round_robin
+    priority: 1

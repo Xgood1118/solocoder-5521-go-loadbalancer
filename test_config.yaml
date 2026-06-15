@@ -1,0 +1,43 @@
+port: 8121
+admin_port: 8120
+
+includes:
+  - test_backends.yaml
+
+health_check:
+  type: tcp
+  interval_sec: 2
+  timeout_sec: 1
+  unhealthy_threshold: 2
+  healthy_threshold: 2
+
+circuit_breaker:
+  failure_threshold: 3
+  cooldown_sec: 5
+
+rate_limit:
+  enabled: true
+  rate_per_sec: 2
+  bucket: 3
+
+access_log:
+  enabled: true
+  file_path: logs/access.log
+  max_hours: 168
+
+backends: []
+
+rules:
+  - id: api-default
+    domain: ""
+    path_prefix: /api
+    backend_group: api
+    strategy: round_robin
+    priority: 100
+    strip_prefix: true
+
+  - id: web-default
+    path_prefix: /
+    backend_group: web
+    strategy: least_connections
+    priority: 10
