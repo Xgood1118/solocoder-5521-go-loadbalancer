@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Load Balancer R2 Dashboard</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; background: #1a1a1a; color: #eaeaea; margin: 24px; }
+  h1 { color: #4ade80; }
+  h2 { color: #93c5fd; border-bottom: 1px solid #444; padding-bottom: 6px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: #262626; padding: 16px; border-radius: 8px; border: 1px solid #3a3a3a; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #3a3a3a; }
+  th { color: #fbbf24; }
+  .ok { color: #4ade80; font-weight: 600; }
+  .num { font-family: 'Consolas', monospace; color: #f0abfc; }
+  pre { background: #111; padding: 10px; border-radius: 4px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>Load Balancer R2 - 5521-go-loadbalancer</h1>
+<p>Window: <code id="windowLabel">10s</code> &middot; Time: <span id="ts"></span></p>
+
+<div class="grid">
+  <div class="card">
+    <h2>Stats (window=10s)</h2>
+    <table id="statsTable"></table>
+  </div>
+  <div class="card">
+    <h2>Backends</h2>
+    <table id="backendsTable">
+      <thead>
+        <tr><th>ID</th><th>Addr</th><th>Wt</th><th>Healthy</th><th>CB</th><th>Conns</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<h2>Raw /stats response</h2>
+<pre id="rawStats"></pre>
+
+<script>
+async function load() {
+  const stats = await fetch('http://127.0.0.1:8129/stats?window=10s').then(r => r.json());
+  const backends = await fetch('http://127.0.0.1:8129/backends').then(r => r.json());
+  document.getElementById('ts').textContent = new Date().toLocaleString();
+  document.getElementById('windowLabel').textContent = stats.window;
+  const rows = [
+    ['total_requests', stats.total_requests],
+    ['total_errors', stats.total_errors],
+    ['window_requests', stats.window_requests],
+    ['window_errors', stats.window_errors],
+    ['avg_latency_ms', stats.avg_latency_ms.toFixed(2)],
+    ['p99_latency_ms', stats.p99_latency_ms.toFixed(2)],
+    ['active_connections', stats.active_connections],
+    ['backend_count', stats.backend_count],
+  ];
+  document.getElementById('statsTable').innerHTML = rows.map(([k, v]) =>
+    `<tr><th>${k}</th><td class="num">${v}</td></tr>`).join('');
+  document.getElementById('rawStats').textContent = JSON.stringify(stats, null, 2);
+  document.querySelector('#backendsTable tbody').innerHTML = backends.map(b =>
+    `<tr><td>${b.id}</td><td>${b.address}</td><td>${b.weight}</td>
+     <td class="${b.healthy ? 'ok' : ''}">${b.healthy}</td>
+     <td>${b.circuit_breaker_state}</td><td>${b.active_conns}</td></tr>`).join('');
+}
+load();
+</script>
+</body>
+</html>

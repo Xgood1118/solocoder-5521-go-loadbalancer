@@ -46,8 +46,8 @@ func (m *Manager) Allow(b *types.Backend) bool {
 	cfg := m.cfg
 	m.mu.RUnlock()
 
-	b.CBMu.Lock()
-	defer b.CBMu.Unlock()
+	b.Mu.Lock()
+	defer b.Mu.Unlock()
 
 	switch b.CBState {
 	case types.CircuitClosed:
@@ -58,7 +58,7 @@ func (m *Manager) Allow(b *types.Backend) bool {
 		if time.Since(b.CBLastStateAt) >= halfPoint {
 			m.mu.Lock()
 			bs := m.getOrCreate(b.ID)
-			bs.halfCount = 0
+			bs.halfCount = 1
 			m.mu.Unlock()
 			b.CBState = types.CircuitHalfOpen
 			b.CBLastStateAt = time.Now()
@@ -67,25 +67,27 @@ func (m *Manager) Allow(b *types.Backend) bool {
 		}
 		return false
 	case types.CircuitHalfOpen:
-		m.mu.RLock()
-		bs := m.breakers[b.ID]
-		m.mu.RUnlock()
+		m.mu.Lock()
+		bs := m.getOrCreate(b.ID)
 		limit := int32(1)
 		if cfg.HalfOpenRequests > 0 {
 			limit = int32(cfg.HalfOpenRequests)
 		}
-		if bs != nil && bs.halfCount < limit {
-			return true
+		allowed := false
+		if bs.halfCount < limit {
+			bs.halfCount++
+			allowed = true
 		}
-		return false
+		m.mu.Unlock()
+		return allowed
 	default:
 		return true
 	}
 }
 
 func (m *Manager) RecordSuccess(b *types.Backend) {
-	b.CBMu.Lock()
-	defer b.CBMu.Unlock()
+	b.Mu.Lock()
+	defer b.Mu.Unlock()
 
 	m.mu.Lock()
 	bs := m.getOrCreate(b.ID)
@@ -110,8 +112,8 @@ func (m *Manager) RecordFailure(b *types.Backend) {
 	cfg := m.cfg
 	m.mu.RUnlock()
 
-	b.CBMu.Lock()
-	defer b.CBMu.Unlock()
+	b.Mu.Lock()
+	defer b.Mu.Unlock()
 
 	m.mu.Lock()
 	bs := m.getOrCreate(b.ID)

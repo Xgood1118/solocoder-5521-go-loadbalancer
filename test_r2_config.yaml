@@ -1,0 +1,49 @@
+port: 8128
+admin_port: 8129
+
+health_check:
+  type: tcp
+  interval_sec: 1
+  timeout_sec: 1
+  unhealthy_threshold: 3
+  healthy_threshold: 2
+
+circuit_breaker:
+  failure_threshold: 100
+  cooldown_sec: 60
+
+rate_limit:
+  enabled: false
+  rate_per_sec: 100000
+  bucket: 200000
+
+access_log:
+  enabled: false
+  file_path: logs/access.log
+  max_hours: 1
+
+backends:
+  - id: be-1
+    group: g1
+    address: 127.0.0.1:8131
+    weight: 3
+    max_conns: 10000
+
+  - id: be-2
+    group: g1
+    address: 127.0.0.1:8132
+    weight: 2
+    max_conns: 10000
+
+  - id: be-3
+    group: g1
+    address: 127.0.0.1:8133
+    weight: 1
+    max_conns: 10000
+
+rules:
+  - id: r1
+    path_prefix: /
+    backend_group: g1
+    strategy: weighted_round_robin
+    priority: 100

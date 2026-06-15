@@ -1,40 +1,27 @@
-// Mock backend server - responds with its own ID
 package main
 
 import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync/atomic"
 )
 
-func main() {
-	id := os.Getenv("BACKEND_ID")
-	port := os.Getenv("PORT")
-	failMode := os.Getenv("FAIL_MODE") // "all", "500", ""
+var counter int64
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if failMode == "all" {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		if failMode == "500" && (r.URL.Path == "/bad" || r.URL.Path == "/healthz") {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(w, "backend=%s path=%s addr=%s\n", id, r.URL.Path, r.RemoteAddr)
+func main() {
+	port := "8131"
+	if len(os.Args) > 1 {
+		port = os.Args[1]
+	}
+	id := port
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt64(&counter, 1)
+		w.Header().Set("X-Backend-ID", id)
+		w.Header().Set("X-Request-Count", fmt.Sprintf("%d", n))
+		w.WriteHeader(200)
+		w.Write([]byte("backend=" + id))
 	})
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if failMode == "500" {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-	fmt.Printf("mock backend %s listening on :%s fail_mode=%s\n", id, port, failMode)
-	http.ListenAndServe(":"+port, mux)
+	http.ListenAndServe(":"+port, nil)
 }

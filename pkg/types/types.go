@@ -44,7 +44,6 @@ type Backend struct {
 	CBState        CircuitBreakerState `json:"circuit_breaker_state"`
 	CBFailCount    int32               `json:"-"`
 	CBLastStateAt  time.Time           `json:"-"`
-	CBMu           sync.Mutex          `json:"-"`
 	Mu             sync.RWMutex        `json:"-"`
 }
 
@@ -108,6 +107,7 @@ type AuditLogEntry struct {
 type LatencySample struct {
 	Timestamp time.Time
 	LatencyMs float64
+	IsErr     bool
 }
 
 func (b *Backend) IncConns() {

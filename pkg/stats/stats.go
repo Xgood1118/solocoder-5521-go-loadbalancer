@@ -54,69 +54,65 @@ func (rb *RingBuffer) Snapshot(window time.Duration) []types.LatencySample {
 }
 
 type Collector struct {
-	ring       *RingBuffer
-	reqTotal   int64
-	errTotal   int64
-	reqWindow  int64
-	errWindow  int64
-	windowStart time.Time
-	windowMu   sync.Mutex
+	ring      *RingBuffer
+	reqTotal  int64
+	errTotal  int64
 }
 
-func NewCollector(windowSize int, windowDur time.Duration) *Collector {
+func NewCollector(capacity int, _ time.Duration) *Collector {
 	return &Collector{
-		ring:        NewRingBuffer(windowSize),
-		windowStart: time.Now(),
+		ring: NewRingBuffer(capacity),
 	}
 }
 
 func (c *Collector) Record(latencyMs float64, isErr bool) {
 	atomic.AddInt64(&c.reqTotal, 1)
-	c.windowMu.Lock()
-	if time.Since(c.windowStart) > time.Minute {
-		c.reqWindow = 0
-		c.errWindow = 0
-		c.windowStart = time.Now()
-	}
-	c.reqWindow++
 	if isErr {
 		atomic.AddInt64(&c.errTotal, 1)
-		c.errWindow++
 	}
-	c.windowMu.Unlock()
-	c.ring.Push(types.LatencySample{Timestamp: time.Now(), LatencyMs: latencyMs})
+	c.ring.Push(types.LatencySample{
+		Timestamp: time.Now(),
+		LatencyMs: latencyMs,
+		IsErr:     isErr,
+	})
 }
 
 type Snapshot struct {
-	TotalRequests   int64
-	TotalErrors     int64
-	WindowRequests  int64
-	WindowErrors    int64
-	AvgLatencyMs    float64
-	P99LatencyMs    float64
-	WindowDuration  string
+	TotalRequests  int64
+	TotalErrors    int64
+	WindowRequests int64
+	WindowErrors   int64
+	AvgLatencyMs   float64
+	P99LatencyMs   float64
+	WindowDuration string
 }
 
 func (c *Collector) Snapshot(window time.Duration) *Snapshot {
 	samples := c.ring.Snapshot(window)
-	s := &Snapshot{}
-	s.TotalRequests = atomic.LoadInt64(&c.reqTotal)
-	s.TotalErrors = atomic.LoadInt64(&c.errTotal)
-	c.windowMu.Lock()
-	s.WindowRequests = c.reqWindow
-	s.WindowErrors = c.errWindow
-	s.WindowDuration = time.Since(c.windowStart).Round(time.Second).String()
-	c.windowMu.Unlock()
+	s := &Snapshot{
+		TotalRequests:  atomic.LoadInt64(&c.reqTotal),
+		TotalErrors:    atomic.LoadInt64(&c.errTotal),
+		WindowDuration: window.String(),
+	}
 	if len(samples) == 0 {
 		return s
 	}
-	total := 0.0
-	latencies := make([]float64, len(samples))
-	for i, sm := range samples {
-		total += sm.LatencyMs
-		latencies[i] = sm.LatencyMs
+
+	windowReqs := int64(len(samples))
+	var windowErrs int64
+	totalLatency := 0.0
+	latencies := make([]float64, 0, len(samples))
+	for _, sm := range samples {
+		totalLatency += sm.LatencyMs
+		latencies = append(latencies, sm.LatencyMs)
+		if sm.IsErr {
+			windowErrs++
+		}
 	}
-	s.AvgLatencyMs = total / float64(len(samples))
+	s.WindowRequests = windowReqs
+	s.WindowErrors = windowErrs
+	s.AvgLatencyMs = totalLatency / float64(len(samples))
+
 	sort.Float64s(latencies)
 	p99Idx := int(math.Ceil(0.99*float64(len(latencies)))) - 1
 	if p99Idx < 0 {
@@ -132,9 +128,8 @@ func (c *Collector) Snapshot(window time.Duration) *Snapshot {
 func (c *Collector) ResetCounters() {
 	atomic.StoreInt64(&c.reqTotal, 0)
 	atomic.StoreInt64(&c.errTotal, 0)
-	c.windowMu.Lock()
-	c.reqWindow = 0
-	c.errWindow = 0
-	c.windowStart = time.Now()
-	c.windowMu.Unlock()
+	c.ring.mu.Lock()
+	c.ring.size = 0
+	c.ring.head = 0
+	c.ring.mu.Unlock()
 }

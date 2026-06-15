@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/loadbalancer/lb/pkg/accesslog"
-	"github.com/loadbalancer/lb/pkg/balancer"
 	cb "github.com/loadbalancer/lb/pkg/circuitbreaker"
 	"github.com/loadbalancer/lb/pkg/logger"
 	prom "github.com/loadbalancer/lb/pkg/prommetrics"
@@ -18,7 +17,6 @@ import (
 	"github.com/loadbalancer/lb/pkg/router"
 	"github.com/loadbalancer/lb/pkg/stats"
 	"github.com/loadbalancer/lb/pkg/types"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 type responseWriterInterceptor struct {
@@ -181,16 +179,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	be.Mu.RLock()
 	healthy := be.Healthy
+	cbState := be.CBState
 	be.Mu.RUnlock()
+
 	healthVal := 0.0
 	if healthy {
 		healthVal = 1.0
 	}
 	prom.BackendHealth.WithLabelValues(be.ID, be.Group).Set(healthVal)
 
-	be.CBMu.Lock()
-	cbState := be.CBState
-	be.CBMu.Unlock()
 	var cbVal float64
 	switch cbState {
 	case types.CircuitClosed:
@@ -211,7 +208,4 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	entry := s.accessLogWriter.BuildEntry(r, iw.statusCode, iw.bytesSent, latencyMs, be.ID, be.Address)
 	s.accessLogWriter.Log(entry)
-
-	_ = prometheus.Labels{}
-	_ = balancer.ErrNoAvailableBackend
 }

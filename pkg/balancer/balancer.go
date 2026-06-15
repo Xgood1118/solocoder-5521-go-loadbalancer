@@ -80,14 +80,15 @@ func (r *RoundRobin) Next(req *http.Request) (*types.Backend, error) {
 
 type WeightedRoundRobin struct {
 	baseBalancer
-	muEx sync.Mutex
-	cw   []int
-	idx  int
+	muEx       sync.Mutex
+	curWeights []int
 }
 
 func NewWeightedRoundRobin(backends []*types.Backend) *WeightedRoundRobin {
-	w := &WeightedRoundRobin{baseBalancer: baseBalancer{backends: backends}}
-	w.rebuildWeights()
+	w := &WeightedRoundRobin{
+		baseBalancer: baseBalancer{backends: backends},
+		curWeights:   make([]int, len(backends)),
+	}
 	return w
 }
 
@@ -98,80 +99,69 @@ func (w *WeightedRoundRobin) Strategy() types.LoadBalancerStrategy {
 func (w *WeightedRoundRobin) SetBackends(backends []*types.Backend) {
 	w.baseBalancer.SetBackends(backends)
 	w.muEx.Lock()
-	w.rebuildWeights()
+	w.curWeights = make([]int, len(backends))
 	w.muEx.Unlock()
 }
 
-func (w *WeightedRoundRobin) rebuildWeights() {
-	w.cw = make([]int, len(w.backends))
-	acc := 0
-	for i, b := range w.backends {
-		acc += b.Weight
-		w.cw[i] = acc
-	}
-	w.idx = 0
-}
+func (w *WeightedRoundRobin) Next(req *http.Request) (*types.Backend, error) {
+	w.mu.RLock()
+	allBackends := w.backends
+	w.mu.RUnlock()
 
-func gcd(a, b int) int {
-	for b != 0 {
-		a, b = b, a%b
+	type entry struct {
+		idx     int
+		backend *types.Backend
+		weight  int
 	}
-	return a
-}
-
-func gcdSlice(arr []int) int {
-	result := arr[0]
-	for i := 1; i < len(arr); i++ {
-		result = gcd(result, arr[i])
-		if result == 1 {
-			return 1
+	var candidates []entry
+	totalWeight := 0
+	for i, be := range allBackends {
+		be.Mu.RLock()
+		healthy := be.Healthy
+		cbOpen := be.CBState == types.CircuitOpen
+		conns := be.ActiveConns
+		max := int64(be.MaxConns)
+		wt := be.Weight
+		be.Mu.RUnlock()
+		if healthy && !cbOpen && conns < max {
+			candidates = append(candidates, entry{idx: i, backend: be, weight: wt})
+			totalWeight += wt
 		}
 	}
-	return result
-}
 
-func (w *WeightedRoundRobin) Next(req *http.Request) (*types.Backend, error) {
-	w.muEx.Lock()
-	defer w.muEx.Unlock()
-	w.mu.RLock()
-	available := w.availableLocked()
-	w.mu.RUnlock()
-	if len(available) == 0 {
+	if len(candidates) == 0 {
 		return nil, ErrNoAvailableBackend
 	}
-	weights := make([]int, len(available))
-	for i, b := range available {
-		weights[i] = b.Weight
+	if totalWeight <= 0 {
+		return candidates[0].backend, nil
 	}
-	g := gcdSlice(weights)
-	total := 0
-	for _, x := range weights {
-		total += x
+
+	w.muEx.Lock()
+	defer w.muEx.Unlock()
+
+	if len(w.curWeights) != len(allBackends) {
+		w.curWeights = make([]int, len(allBackends))
 	}
-	if total == 0 {
-		return available[0], nil
-	}
-	for {
-		w.idx = (w.idx + 1) % len(available)
-		if w.idx == 0 {
-			w.cw = make([]int, len(available))
-			acc := 0
-			for i, wt := range weights {
-				acc += wt
-				w.cw[i] = acc
-			}
+
+	bestIdx := -1
+	bestWeight := -1
+	for _, c := range candidates {
+		w.curWeights[c.idx] += c.weight
+		if w.curWeights[c.idx] > bestWeight {
+			bestWeight = w.curWeights[c.idx]
+			bestIdx = c.idx
 		}
-		step := (w.idx * g) % total
-		for i, cw := range w.cw {
-			if step < cw {
-				if i == w.idx {
-					return available[i], nil
-				}
-				break
-			}
-		}
-		return available[w.idx], nil
 	}
+	if bestIdx >= 0 {
+		w.curWeights[bestIdx] -= totalWeight
+	}
+
+	for _, c := range candidates {
+		if c.idx == bestIdx {
+			return c.backend, nil
+		}
+	}
+	return candidates[0].backend, nil
 }
 
 type LeastConnections struct {
